@@ -38,11 +38,8 @@ The tenant API key stays on your server. The browser only ever sees the
 ## Install
 
 ```bash
-npm install github:SteveTambo/ivana-checkout-sdk @solana/web3.js
+npm install @habix/ivana-checkout @solana/web3.js
 ```
-
-The package installs as `@habix/ivana-checkout`, so the imports below work
-unchanged.
 
 You need an IVANA tenant account and API key. Register at
 [ivanabeta.habixgroup.top](https://ivanabeta.habixgroup.top) and configure
