@@ -41,5 +41,16 @@
     "usdc",
     "non-custodial",
     "ivana"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SteveTambo/ivana-checkout-sdk.git"
+  },
+  "homepage": "https://github.com/SteveTambo/ivana-checkout-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/SteveTambo/ivana-checkout-sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
