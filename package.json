@@ -1,0 +1,45 @@
+{
+  "name": "@habix/ivana-checkout",
+  "version": "0.1.0",
+  "description": "Non-custodial Solana checkout on the IVANA payments engine: one buyer-signed transaction pays the merchant, VAT, the platform fee and suppliers.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Habix Group",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/checkout.js"
+    },
+    "./server": {
+      "types": "./src/server.d.ts",
+      "default": "./src/server.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "peerDependencies": {
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@solana/web3.js": "^1.98.4"
+  },
+  "keywords": [
+    "solana",
+    "checkout",
+    "payments",
+    "usdc",
+    "non-custodial",
+    "ivana"
+  ]
+}
