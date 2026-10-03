@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Transaction } from "@solana/web3.js";
 import { createIvanaCheckout } from "../src/checkout.js";
-import { BUYER, builtTransactionBase64, fakeConnection, fakeFetch, fakeWallet } from "./helpers.js";
+import { BUYER, SIGNATURE, builtTransactionBase64, fakeConnection, fakeFetch, fakeWallet } from "./helpers.js";
 
 const verified = [200, { success: true, message: "Payment verified.", paymentMethod: "USDC" }];
 const built = () => [200, { orderId: "intent-1", transaction: builtTransactionBase64(), feeMode: "buyer" }];
@@ -22,9 +22,9 @@ test("pay builds buyer-paid, refreshes the blockhash, signs, sends and verifies"
 
   const result = await client.pay({ intentId: "intent-1", wallet, onSignature: (s) => seen.push(s) });
 
-  assert.equal(result.signature, "sig-123");
+  assert.equal(result.signature, SIGNATURE);
   assert.equal(result.verification.success, true);
-  assert.deepEqual(seen, ["sig-123"]);
+  assert.deepEqual(seen, [SIGNATURE]);
   assert.deepEqual(calls[0].body, {
     intentId: "intent-1",
     walletAddress: BUYER.toBase58(),
@@ -34,7 +34,7 @@ test("pay builds buyer-paid, refreshes the blockhash, signs, sends and verifies"
   assert.equal(wallet.signed[0].recentBlockhash, "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W");
   assert.deepEqual(calls[1].body, {
     intentId: "intent-1",
-    signature: "sig-123",
+    signature: SIGNATURE,
     walletAddress: BUYER.toBase58(),
     paymentMethod: "USDC",
   });
@@ -60,7 +60,7 @@ test("a verification failure after broadcast carries the signature, so nobody pa
   });
 
   await assert.rejects(client.pay({ intentId: "intent-1", wallet: fakeWallet() }), (error) => {
-    assert.equal(error.signature, "sig-123");
+    assert.equal(error.signature, SIGNATURE);
     assert.equal(error.code, "VERIFY_FAILED");
     assert.equal(error.status, 400);
     return true;
@@ -92,7 +92,7 @@ test("an expired blockhash is refreshed and re-signed without rebuilding the pay
       sendRawTransaction: async () => {
         sends += 1;
         if (sends === 1) throw new Error("Blockhash not found");
-        return "sig-retry";
+        return SIGNATURE;
       },
     }),
   );
@@ -100,7 +100,7 @@ test("an expired blockhash is refreshed and re-signed without rebuilding the pay
 
   const result = await client.pay({ intentId: "intent-1", wallet: fakeWallet(), onRetry: () => { retried += 1; } });
 
-  assert.equal(result.signature, "sig-retry");
+  assert.equal(result.signature, SIGNATURE);
   assert.equal(retried, 1);
   assert.equal(calls.filter((c) => c.key === "POST /webthree/build-payment-transaction").length, 1);
 });

@@ -1,4 +1,9 @@
 import { Keypair, Transaction, TransactionInstruction, PublicKey } from "@solana/web3.js";
+import { base58Encode } from "../src/base58.js";
+
+/** What a wallet's signed transaction carries, and the id the SDK derives from it. */
+export const SIGNATURE_BYTES = new Uint8Array(64).fill(7);
+export const SIGNATURE = base58Encode(SIGNATURE_BYTES);
 
 export const BUYER = Keypair.generate().publicKey;
 
@@ -40,7 +45,7 @@ export function fakeFetch(routes) {
 export function fakeConnection(overrides = {}) {
   return {
     getLatestBlockhash: async () => ({ blockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: 100 }),
-    sendRawTransaction: async () => "sig-123",
+    sendRawTransaction: async () => SIGNATURE,
     confirmTransaction: async () => ({ value: { err: null } }),
     getSignatureStatuses: async () => ({ value: [null] }),
     ...overrides,
@@ -54,7 +59,7 @@ export function fakeWallet(overrides = {}) {
     signed,
     signTransaction: async (tx) => {
       signed.push(tx);
-      return { serialize: () => new Uint8Array([1, 2, 3]) };
+      return { signature: SIGNATURE_BYTES, serialize: () => new Uint8Array([1, 2, 3]) };
     },
     ...overrides,
   };

@@ -85,6 +85,7 @@ const { signature } = await checkout.pay({
   wallet,
   paymentMethod: "USDC",
   onSignature: (sig) => localStorage.setItem(`ivana:${intentId}`, sig),
+  onRejected: () => localStorage.removeItem(`ivana:${intentId}`),
 });
 ```
 
@@ -95,13 +96,24 @@ never change.
 
 ### Never charge twice
 
-Save the signature as soon as `onSignature` fires. If `pay` throws an error
-with `error.signature` set, the payment was already broadcast and may still
-settle. Show "don't pay again" and later call:
+Save the signature as soon as `onSignature` fires. It fires after the wallet
+signs and **before** the transaction is broadcast, so even a connection that
+drops mid-send leaves you holding the signature. If the node then refuses the
+transaction, nothing was sent and `onRejected` fires: drop what you saved and
+let the buyer try again.
+
+If `pay` throws an error with `error.signature` set, the payment may have been
+broadcast and may still settle. Show "don't pay again" and later call:
 
 ```js
 await checkout.verifyPayment({ intentId, signature, walletAddress, paymentMethod: "USDC" });
 ```
+
+When a send's outcome is unknown (the connection dropped), `error.lastValidBlockHeight`
+is the chain height after which that transaction can never land. Until
+`await connection.getBlockHeight()` passes it, keep telling the buyer not to
+pay again; after it, and if `verifyPayment` still finds nothing, a new payment
+is safe.
 
 ### Optional AML pre-check
 
@@ -140,6 +152,7 @@ a `code` where one applies:
 | `SOLANA_TRANSACTION_FAILED` | The transaction failed on chain. No payment was made. |
 | `TRANSACTION_NOT_FOUND` | Broadcast but not indexed yet. Verify again shortly. |
 | `VERIFY_FAILED` | Broadcast, but verification rejected it. `error.signature` is set. |
+| `SEND_FAILED` | The wallet didn't sign, or the node refused the transaction. Nothing was sent. |
 | `BLOCKHASH_EXPIRED` | The buyer took too long to approve, after automatic retries. |
 | `WALLET_NOT_CONNECTED` | No wallet, or one without `signTransaction`. |
 | `TIMEOUT` / `NETWORK_ERROR` | IVANA could not be reached. |

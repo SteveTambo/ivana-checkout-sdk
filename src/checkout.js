@@ -8,6 +8,7 @@
  * Neither IVANA nor this SDK can move the buyer's funds.
  */
 
+import { base58Encode } from "./base58.js";
 import { IvanaError, normalizeBaseUrl, request } from "./http.js";
 
 export { IvanaError } from "./http.js";
@@ -24,6 +25,19 @@ function isBlockhashExpired(error) {
   return /blockhash not found|block height exceeded|failed to simulate|simulation failed/i.test(
     error?.message || "",
   );
+}
+
+/**
+ * The node answered the broadcast with an error, so it refused the
+ * transaction and nothing was sent. web3.js throws SendTransactionError for
+ * every JSON-RPC error reply and a plain Error for a transport failure (a
+ * dropped connection, a timeout), which says nothing about whether the node
+ * got the bytes. Matched by shape, not instanceof: an app can bundle a second
+ * copy of web3.js, and a refusal's `name` is just "Error".
+ * @param {unknown} error
+ */
+function isNodeRefusal(error) {
+  return typeof /** @type {any} */ (error)?.getLogs === "function";
 }
 
 function onChainFailure(err) {
@@ -144,14 +158,17 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * Run the whole buyer-paid checkout for one intent: build, sign with the
      * buyer's wallet, broadcast, confirm and verify.
      *
-     * Save `signature` (onSignature fires as soon as it exists). If the page
-     * closes before verification, call verifyPayment with it later instead of
-     * paying again.
+     * Save `signature` (onSignature fires as soon as the wallet has signed,
+     * BEFORE the transaction is broadcast, so a connection that drops mid-send
+     * can't leave a payment you hold no signature for). If the page closes
+     * before verification, call verifyPayment with it later instead of paying
+     * again. If the node then refuses the transaction, onRejected fires:
+     * nothing was sent, so drop what you saved and let the buyer retry.
      *
-     * @param {{ intentId: string, wallet: { publicKey: unknown, signTransaction: (tx: any) => Promise<any> }, paymentMethod?: "USDC"|"USDT"|"HBX", onSignature?: (signature: string) => void, onRetry?: () => void }} input
+     * @param {{ intentId: string, wallet: { publicKey: unknown, signTransaction: (tx: any) => Promise<any> }, paymentMethod?: "USDC"|"USDT"|"HBX", onSignature?: (signature: string, blockhash: { blockhash: string, lastValidBlockHeight: number }) => void, onRejected?: () => void, onRetry?: () => void }} input
      * @returns {Promise<{ signature: string, verification: Record<string, unknown> }>}
      */
-    async pay({ intentId, wallet, paymentMethod = "USDC", onSignature, onRetry }) {
+    async pay({ intentId, wallet, paymentMethod = "USDC", onSignature, onRejected, onRetry }) {
       if (!intentId) throw new IvanaError("pay needs the intentId from your backend.");
       if (typeof wallet?.signTransaction !== "function") {
         throw new IvanaError("The wallet must support signTransaction.", { code: "WALLET_NOT_CONNECTED" });
@@ -173,13 +190,18 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
         const latestBlockhash = await connection.getLatestBlockhash("confirmed");
         transaction.recentBlockhash = latestBlockhash.blockhash;
 
+        // A signed transaction already carries its own signature, so it is
+        // known before anything is broadcast.
+        let raw;
         let signature;
         try {
           const signed = await wallet.signTransaction(transaction);
-          signature = await connection.sendRawTransaction(signed.serialize(), {
-            skipPreflight: false,
-            preflightCommitment: "confirmed",
-          });
+          // serialize() also checks the signatures are valid.
+          raw = signed.serialize();
+          if (!signed.signature) {
+            throw new Error("The wallet returned no transaction signature, so nothing was sent.");
+          }
+          signature = base58Encode(signed.signature);
         } catch (error) {
           if (isBlockhashExpired(error) && attempt < MAX_BLOCKHASH_RETRIES) {
             onRetry?.();
@@ -188,27 +210,62 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
           if (error?.code === 4001) {
             throw new IvanaError("The buyer cancelled the transaction.", { code: "USER_REJECTED", cause: error });
           }
-          throw new IvanaError(error?.message || "Could not sign or send the transaction.", {
+          throw new IvanaError(error?.message || "Could not sign the transaction.", {
             code: isBlockhashExpired(error) ? "BLOCKHASH_EXPIRED" : "SEND_FAILED",
             cause: error,
           });
         }
 
-        onSignature?.(signature);
+        // Handed over before the broadcast: if the connection drops while
+        // sending, the caller still holds the signature to verify later.
+        onSignature?.(signature, latestBlockhash);
+
+        // True when the broadcast's outcome can't be told from here.
+        let sendUncertain = false;
+        try {
+          const returned = await connection.sendRawTransaction(raw, {
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+          });
+          // Only the signed transaction's own signature is ever reconciled.
+          if (returned !== signature) sendUncertain = true;
+        } catch (error) {
+          if (!isNodeRefusal(error) && !isBlockhashExpired(error)) {
+            // A transport failure doesn't prove the node missed the bytes.
+            sendUncertain = true;
+          } else {
+            onRejected?.();
+            if (isBlockhashExpired(error) && attempt < MAX_BLOCKHASH_RETRIES) {
+              onRetry?.();
+              continue;
+            }
+            throw new IvanaError(error?.message || "The transaction was refused.", {
+              code: isBlockhashExpired(error) ? "BLOCKHASH_EXPIRED" : "SEND_FAILED",
+              cause: error,
+            });
+          }
+        }
+
         await confirmSignature(connection, signature, latestBlockhash);
         try {
           const verification = await verifyPayment({ intentId, signature, walletAddress, paymentMethod });
           return { signature, verification };
         } catch (error) {
-          // The payment was broadcast, so it may still settle. Carry the
-          // signature so the caller can retry verification, never re-pay.
+          // The payment may have been broadcast, so it may still settle. Carry
+          // the signature so the caller can retry verification, never re-pay.
+          const notVisible = error?.code === "TRANSACTION_NOT_FOUND";
           const pending = new IvanaError(
-            error?.code === "TRANSACTION_NOT_FOUND"
-              ? "The payment was sent but is not visible on chain yet. Verify it again shortly; do not pay again."
+            notVisible
+              ? sendUncertain
+                ? "The connection dropped while sending, so the payment may or may not have been sent. Verify it again shortly, and do not pay again until the transaction's last valid block height has passed."
+                : "The payment was sent but is not visible on chain yet. Verify it again shortly; do not pay again."
               : error?.message || "The payment was sent but could not be verified yet.",
             { status: error?.status, code: error?.code || "VERIFY_FAILED", details: error?.details, cause: error },
           );
           pending.signature = signature;
+          // Once the chain passes this height an unconfirmed transaction can
+          // never land, and only then is it safe to let the buyer pay again.
+          pending.lastValidBlockHeight = latestBlockhash.lastValidBlockHeight;
           throw pending;
         }
       }

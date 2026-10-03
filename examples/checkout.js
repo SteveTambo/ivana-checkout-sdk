@@ -37,12 +37,13 @@ export async function buy(productId, quantity, customer) {
       wallet,
       paymentMethod: "USDC",
       onSignature: (sig) => localStorage.setItem(`ivana:${intentId}`, sig),
+      onRejected: () => localStorage.removeItem(`ivana:${intentId}`),
     });
     localStorage.removeItem(`ivana:${intentId}`);
     return signature;
   } catch (error) {
     if (error.signature) {
-      // Already broadcast: tell the buyer not to pay again, and retry
+      // May have been broadcast: tell the buyer not to pay again, and retry
       // checkout.verifyPayment later with the saved signature.
     }
     throw error;
