@@ -158,14 +158,14 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * Run the whole buyer-paid checkout for one intent: build, sign with the
      * buyer's wallet, broadcast, confirm and verify.
      *
-     * Save `signature` (onSignature fires as soon as the wallet has signed,
-     * BEFORE the transaction is broadcast, so a connection that drops mid-send
-     * can't leave a payment you hold no signature for). If the page closes
+     * Save `signature` (onSignature fires after the signed attempt is registered
+     * and BEFORE the transaction is broadcast, so the service can recover a
+     * payment that lands just after checkout expiry). If the page closes
      * before verification, call verifyPayment with it later instead of paying
      * again. If the node then refuses the transaction, onRejected fires:
      * nothing was sent, so drop what you saved and let the buyer retry.
      *
-     * @param {{ intentId: string, wallet: { publicKey: unknown, signTransaction: (tx: any) => Promise<any> }, paymentMethod?: "USDC"|"USDT"|"HBX", onSignature?: (signature: string, blockhash: { blockhash: string, lastValidBlockHeight: number }) => void, onRejected?: () => void, onRetry?: () => void }} input
+     * @param {{ intentId: string, wallet: { publicKey: unknown, signTransaction: (tx: any) => Promise<any> }, paymentMethod?: "USDC"|"USDT"|"HBX", onSignature?: (signature: string, blockhash: { blockhash: string, lastValidBlockHeight: number }) => void|Promise<void>, onRejected?: () => void, onRetry?: () => void }} input
      * @returns {Promise<{ signature: string, verification: Record<string, unknown> }>}
      */
     async pay({ intentId, wallet, paymentMethod = "USDC", onSignature, onRejected, onRetry }) {
@@ -216,9 +216,18 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
           });
         }
 
-        // Handed over before the broadcast: if the connection drops while
-        // sending, the caller still holds the signature to verify later.
-        onSignature?.(signature, latestBlockhash);
+        // Register the exact signed attempt before broadcast. This binds a
+        // possible post-checkout-expiry confirmation to a blockhash lease the
+        // service saw while the checkout was still open.
+        await request(client, "POST", "/webthree/register-payment-attempt", {
+          intentId,
+          signature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          walletAddress,
+          paymentMethod,
+        });
+        await onSignature?.(signature, latestBlockhash);
 
         // True when the broadcast's outcome can't be told from here.
         let sendUncertain = false;

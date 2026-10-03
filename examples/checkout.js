@@ -5,7 +5,6 @@ import { Connection } from "@solana/web3.js";
 import { createIvanaCheckout } from "@habix/ivana-checkout";
 
 const checkout = createIvanaCheckout({
-  // Your own RPC endpoint is recommended for production.
   connection: new Connection("https://api.mainnet-beta.solana.com", "confirmed"),
 });
 

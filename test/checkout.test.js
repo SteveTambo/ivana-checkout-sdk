@@ -8,7 +8,10 @@ const verified = [200, { success: true, message: "Payment verified.", paymentMet
 const built = () => [200, { orderId: "intent-1", transaction: builtTransactionBase64(), feeMode: "buyer" }];
 
 function checkout(routes, connection = fakeConnection()) {
-  const { fetch, calls } = fakeFetch(routes);
+  const { fetch, calls } = fakeFetch({
+    "POST /webthree/register-payment-attempt": [200, { registered: true }],
+    ...routes,
+  });
   return { calls, client: createIvanaCheckout({ connection, fetch, Transaction }) };
 }
 
@@ -32,7 +35,16 @@ test("pay builds buyer-paid, refreshes the blockhash, signs, sends and verifies"
     feeMode: "buyer",
   });
   assert.equal(wallet.signed[0].recentBlockhash, "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W");
+  assert.equal(calls[1].key, "POST /webthree/register-payment-attempt");
   assert.deepEqual(calls[1].body, {
+    intentId: "intent-1",
+    signature: SIGNATURE,
+    blockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W",
+    lastValidBlockHeight: 100,
+    walletAddress: BUYER.toBase58(),
+    paymentMethod: "USDC",
+  });
+  assert.deepEqual(calls[2].body, {
     intentId: "intent-1",
     signature: SIGNATURE,
     walletAddress: BUYER.toBase58(),
@@ -65,6 +77,20 @@ test("a verification failure after broadcast carries the signature, so nobody pa
     assert.equal(error.status, 400);
     return true;
   });
+});
+
+test("does not broadcast when signed-attempt registration fails", async () => {
+  let sent = false;
+  const { client } = checkout(
+    {
+      "POST /webthree/build-payment-transaction": built,
+      "POST /webthree/register-payment-attempt": [503, { error: { message: "unavailable" } }],
+    },
+    fakeConnection({ sendRawTransaction: async () => { sent = true; return SIGNATURE; } }),
+  );
+
+  await assert.rejects(client.pay({ intentId: "intent-1", wallet: fakeWallet() }));
+  assert.equal(sent, false);
 });
 
 test("a cancelled wallet prompt is reported as USER_REJECTED and nothing is sent", async () => {

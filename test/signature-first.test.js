@@ -14,7 +14,10 @@ const notFound = () => [400, { error: { message: "Transaction not found on-chain
 const refusal = (message) => Object.assign(new Error(message), { getLogs: async () => [] });
 
 function checkout(routes, connection = fakeConnection()) {
-  const { fetch, calls } = fakeFetch(routes);
+  const { fetch, calls } = fakeFetch({
+    "POST /webthree/register-payment-attempt": [200, { registered: true }],
+    ...routes,
+  });
   return { calls, client: createIvanaCheckout({ connection, fetch, Transaction }) };
 }
 

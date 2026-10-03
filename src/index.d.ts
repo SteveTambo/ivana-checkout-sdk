@@ -55,7 +55,7 @@ export interface IvanaCheckout {
     wallet: CheckoutWallet;
     paymentMethod?: PaymentMethod;
     /** Fires after the wallet signs and BEFORE the transaction is broadcast. */
-    onSignature?: (signature: string, blockhash: { blockhash: string; lastValidBlockHeight: number }) => void;
+    onSignature?: (signature: string, blockhash: { blockhash: string; lastValidBlockHeight: number }) => void | Promise<void>;
     /** The node refused the transaction, so nothing was sent: drop the saved signature. */
     onRejected?: () => void;
     onRetry?: () => void;
