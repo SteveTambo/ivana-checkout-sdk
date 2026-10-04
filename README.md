@@ -126,20 +126,44 @@ for a friendlier message before the wallet prompt.
 
 ## 3. Fulfil from settlement events (server)
 
+Every paid intent produces a durable, ordered `payment.completed` event, even
+when the buyer closes the tab mid-checkout. Fulfil orders from these events
+and an order is never lost:
+
 ```js
-let cursor = await loadCursor();
-const page = await ivana.listSettlementEvents({ after: cursor });
-for (const event of page.events) {
-  await fulfil(event.merchantReference, event); // persist event.id first
-  await ivana.acknowledgeSettlementEvent(event.id);
-  cursor = event.cursor;
-}
-await saveCursor(cursor);
+import { createIvanaServer, createSettlementConsumer, PermanentEventError } from "@habix/ivana-checkout/server";
+
+const ivana = createIvanaServer({ apiKey: process.env.IVANA_API_KEY });
+
+const consumer = createSettlementConsumer({
+  server: ivana,
+  loadCursor: () => db.getSetting("ivana-cursor"),
+  saveCursor: (cursor) => db.setSetting("ivana-cursor", cursor),
+  // Must be idempotent: the same event can arrive again after a crash.
+  async apply(event) {
+    const order = await db.findOrderByReference(event.merchantReference);
+    if (!order) throw new PermanentEventError(`No order for ${event.merchantReference}`);
+    if (order.paidIntentId === event.intentId) return; // already fulfilled
+    await db.markPaid(order.id, { intentId: event.intentId, signature: event.signature });
+  },
+  onParked: (event, error) => alertOps(`Payment ${event.intentId} needs attention: ${error.message}`),
+});
+
+const stop = consumer.start(); // every minute while payments arrive, every 15 minutes when quiet
 ```
 
-Events are durable and ordered. Unacknowledged events replay after a crash,
-so persist `event.id` before acting on it. `settlementHealth()` reports
-events or intents that have been stuck for over ten minutes.
+The consumer applies each event, acknowledges it, then saves the cursor, so
+a crash at any point replays the event rather than losing it. If `apply`
+throws an ordinary error (your database is down), the round stops and the
+event is retried with growing delays. If it throws `PermanentEventError`
+three times in a row, the event is **parked**: the consumer moves on so later
+payments keep settling, and leaves that event unacknowledged in IVANA for a
+person to resolve. Run one round yourself with `await consumer.pollOnce()`,
+for example from a cron job.
+
+The building blocks are available directly: `listSettlementEvents({ after })`
+and `acknowledgeSettlementEvent(id)`. `settlementHealth()` reports events or
+intents that have been stuck for over ten minutes, including parked ones.
 
 ### Confirm one payment
 

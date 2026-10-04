@@ -3,7 +3,7 @@
 // browser. Run with: IVANA_API_KEY=... node examples/server.mjs
 
 import http from "node:http";
-import { createIvanaServer } from "@habix/ivana-checkout/server";
+import { createIvanaServer, createSettlementConsumer } from "@habix/ivana-checkout/server";
 
 const ivana = createIvanaServer({ apiKey: process.env.IVANA_API_KEY });
 
@@ -39,14 +39,13 @@ http
   })
   .listen(3000, () => console.log("Merchant backend on http://localhost:3000"));
 
-// Fulfil from the settlement feed: persist each event id before acting on
-// it, then acknowledge. Unacknowledged events replay after a crash.
-async function fulfilSettledPayments(cursor) {
-  const page = await ivana.listSettlementEvents({ after: cursor });
-  for (const event of page.events) {
-    console.log("Settled:", event.merchantReference, event.signature);
-    await ivana.acknowledgeSettlementEvent(event.id);
-  }
-  return page.nextCursor;
-}
-void fulfilSettledPayments;
+// Fulfil from the settlement feed. A real backend stores the cursor in its
+// database and marks the order paid in apply (idempotently, by intentId).
+let cursor = null;
+createSettlementConsumer({
+  server: ivana,
+  loadCursor: () => cursor,
+  saveCursor: (next) => { cursor = next; },
+  apply: (event) => console.log("Settled:", event.merchantReference, event.signature),
+  onParked: (event, error) => console.error("Needs attention:", event.intentId, error.message),
+}).start();

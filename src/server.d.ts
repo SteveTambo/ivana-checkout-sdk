@@ -103,3 +103,43 @@ export declare function createIvanaServer(options: {
   /** Only for trusted server-side runtimes that define window/document. */
   allowBrowser?: boolean;
 }): IvanaServer;
+
+/** Throw from a consumer's `apply` when retrying can never make the event apply. */
+export declare class PermanentEventError extends Error {
+  name: "PermanentEventError";
+  constructor(message: string, options?: { cause?: unknown });
+}
+
+export interface SettlementConsumer {
+  /** One pass over everything new in the feed. */
+  pollOnce(): Promise<{ applied: number; parked: number; hasMore: boolean }>;
+  /** Poll on a timer; returns a function that stops it. */
+  start(options?: {
+    /** Delay after a round that applied events (default 60 s). */
+    activeIntervalMs?: number;
+    /** Delay after a quiet round, and the cap on failure backoff (default 15 min). */
+    idleIntervalMs?: number;
+    onError?: (error: unknown) => unknown;
+  }): () => void;
+}
+
+/**
+ * The fulfilment loop: apply each settlement event in order, acknowledge it,
+ * then save the cursor. `apply` must be idempotent (key orders on intentId).
+ * After `parkAfter` consecutive permanent failures an event is skipped
+ * without being acknowledged, so it stays in IVANA for a person to resolve.
+ */
+export declare function createSettlementConsumer(options: {
+  server: Pick<IvanaServer, "listSettlementEvents" | "acknowledgeSettlementEvent">;
+  apply: (event: SettlementEvent) => unknown | Promise<unknown>;
+  loadCursor: () => string | null | undefined | Promise<string | null | undefined>;
+  saveCursor: (cursor: string) => unknown | Promise<unknown>;
+  /** Defaults to `error instanceof PermanentEventError`. */
+  isPermanent?: (error: unknown) => boolean;
+  onParked?: (event: SettlementEvent, error: unknown) => unknown;
+  /** Consecutive permanent failures before an event is parked (default 3). */
+  parkAfter?: number;
+  pageSize?: number;
+  maxPages?: number;
+}): SettlementConsumer;
+

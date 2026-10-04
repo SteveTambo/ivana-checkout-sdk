@@ -7,6 +7,7 @@
 import { IvanaError, normalizeBaseUrl, request } from "./http.js";
 
 export { IvanaError } from "./http.js";
+export { createSettlementConsumer, PermanentEventError } from "./consumer.js";
 
 /**
  * @typedef {object} LineItem
