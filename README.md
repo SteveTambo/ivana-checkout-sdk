@@ -141,6 +141,24 @@ Events are durable and ordered. Unacknowledged events replay after a crash,
 so persist `event.id` before acting on it. `settlementHealth()` reports
 events or intents that have been stuck for over ten minutes.
 
+### Confirm one payment
+
+```js
+const receipt = await ivana.getPaymentSettlement(intentId);
+if (receipt.status === "completed") fulfil(receipt.merchantReference, receipt);
+```
+
+Use this when your backend records an order the buyer's browser reported.
+The buyer's wallet and the transaction signature are only returned once the
+payment has completed.
+
+### Check payment setup
+
+```js
+const { paymentSetup } = await ivana.getTenant({ includePaymentSetup: true });
+if (!paymentSetup.ready) console.warn("Missing:", paymentSetup.missing);
+```
+
 ## Errors
 
 Every failure is an `IvanaError` with `message`, optional HTTP `status`, and

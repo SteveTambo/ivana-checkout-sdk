@@ -94,5 +94,28 @@ export function createIvanaServer({ apiKey, baseUrl, fetch: fetchImpl, timeoutMs
     settlementHealth() {
       return request(client, "GET", "/webthree/settlement-health");
     },
+
+    /**
+     * The verified receipt for one of your intents. Confirm a payment here
+     * before fulfilling an order recorded from the buyer's browser; the
+     * wallet and signature are returned only once the payment completed.
+     *
+     * @param {string} intentId
+     * @returns {Promise<{ intentId: string, status: string, merchantReference: string|null, netAmount: number|null, paymentMethod: string|null, walletAddress: string|null, signature: string|null, hbxRate: number|null }>}
+     */
+    getPaymentSettlement(intentId) {
+      if (!intentId) return Promise.reject(new IvanaError("intentId is required."));
+      return request(client, "GET", `/webthree/payment-intents/${encodeURIComponent(intentId)}/settlement`);
+    },
+
+    /**
+     * The tenant this key belongs to. With includePaymentSetup, also whether
+     * the treasury wallet is configured so checkout can take payments.
+     *
+     * @param {{ includePaymentSetup?: boolean }} [options]
+     */
+    getTenant({ includePaymentSetup = false } = {}) {
+      return request(client, "GET", `/tenants/me${includePaymentSetup ? "?include=paymentSetup" : ""}`);
+    },
   };
 }

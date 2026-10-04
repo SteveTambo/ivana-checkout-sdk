@@ -47,6 +47,26 @@ export interface SettlementEvent {
   contractVersion: number;
 }
 
+export interface PaymentSettlement {
+  intentId: string;
+  status: string;
+  merchantReference: string | null;
+  netAmount: number | null;
+  paymentMethod: PaymentMethod | null;
+  /** Null until the payment completed. */
+  walletAddress: string | null;
+  /** Null until the payment completed. */
+  signature: string | null;
+  hbxRate: number | null;
+}
+
+export interface PaymentSetup {
+  ready: boolean;
+  tenantConfigExists: boolean;
+  treasuryWalletConfigured: boolean;
+  missing: Array<"wallet_mints_configuration" | "valid_treasury_wallet">;
+}
+
 export interface IvanaServer {
   createPaymentIntent(input: {
     customer: { name: string; email: string; [field: string]: unknown };
@@ -67,6 +87,11 @@ export interface IvanaServer {
     unacknowledgedSettlements: number;
     unresolvedBuiltIntents: number;
     healthy: boolean;
+  }>;
+  getPaymentSettlement(intentId: string): Promise<PaymentSettlement>;
+  getTenant(options?: { includePaymentSetup?: boolean }): Promise<{
+    tenant: { id: number | string; slug: string; name?: string };
+    paymentSetup?: PaymentSetup;
   }>;
 }
 

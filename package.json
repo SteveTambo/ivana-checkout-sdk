@@ -1,6 +1,6 @@
 {
   "name": "@habix/ivana-checkout",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Non-custodial Solana checkout on the IVANA payments engine: one buyer-signed transaction pays the merchant, VAT, the platform fee and suppliers.",
   "type": "module",
   "license": "Apache-2.0",

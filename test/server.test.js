@@ -72,3 +72,21 @@ test("the server client refuses to run in a browser, where the key would leak", 
 test("a missing API key fails fast", () => {
   assert.throws(() => createIvanaServer({ fetch: async () => {} }), /apiKey/);
 });
+
+test("getPaymentSettlement reads the tenant-authenticated receipt", async () => {
+  const receipt = { intentId: "intent 1", status: "completed", walletAddress: "w", signature: "s" };
+  const { fetch, calls } = fakeFetch({ "GET /webthree/payment-intents/intent%201/settlement": [200, receipt] });
+  const ivana = createIvanaServer({ apiKey: "tenant-key", fetch });
+  assert.deepEqual(await ivana.getPaymentSettlement("intent 1"), receipt);
+  assert.equal(calls[0].headers["x-tenant-api-key"], "tenant-key");
+  await assert.rejects(ivana.getPaymentSettlement(""), /intentId is required/);
+});
+
+test("getTenant asks for payment setup only when requested", async () => {
+  const { fetch, calls } = fakeFetch({ "GET /tenants/me": [200, { tenant: { id: 1, slug: "shop" } }] });
+  const ivana = createIvanaServer({ apiKey: "k", fetch });
+  await ivana.getTenant();
+  await ivana.getTenant({ includePaymentSetup: true });
+  assert.equal(calls[0].path, "/tenants/me");
+  assert.equal(calls[1].path, "/tenants/me?include=paymentSetup");
+});
