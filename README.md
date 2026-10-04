@@ -115,6 +115,42 @@ is the chain height after which that transaction can never land. Until
 pay again; after it, and if `verifyPayment` still finds nothing, a new payment
 is safe.
 
+### Drop-in pay button (React)
+
+```jsx
+import { Connection } from "@solana/web3.js";
+import { IvanaPayButton } from "@habix/ivana-checkout/react";
+
+const connection = new Connection("https://your-rpc.example", "confirmed");
+
+<IvanaPayButton
+  intentId={intentId}
+  connection={connection}
+  paymentMethod="USDC"
+  onPaid={({ signature }) => showReceipt(signature)}
+/>;
+```
+
+The button does everything above for you:
+
+- **Wallet picker.** Phantom and Solflare when installed. On a phone's
+  browser, where wallets aren't injected, it offers "Open in Phantom" or
+  "Open in Solflare", which reopens your checkout page inside the wallet's
+  own browser. Otherwise it links to the wallet's download page.
+- **Never charges twice.** It saves the signature before broadcast, and on
+  the next page load resolves that payment before offering "pay" again. A
+  payment that may have been sent shows "Don't pay again" until IVANA or the
+  chain gives a definite answer.
+- **Unstyled.** Target the `ivana-pay`, `ivana-pay__button`,
+  `ivana-pay__wallets`, `ivana-pay__link` and `ivana-pay__message` classes.
+
+React 18 or newer is an optional peer dependency, needed only for
+`@habix/ivana-checkout/react`. For your own UI, use the `useIvanaPayment`
+hook. Without React, `createPayFlow` (from the main entry) is the same logic
+as a small state machine with `choose`, `pay`, `recover` and `subscribe`, and
+`listWallets()`, `createPendingPaymentStore()` and
+`checkout.recoverPayment(saved)` are available on their own.
+
 ### Optional AML pre-check
 
 ```js

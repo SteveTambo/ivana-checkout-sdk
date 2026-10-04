@@ -12,12 +12,16 @@ import { base58Encode } from "./base58.js";
 import { IvanaError, normalizeBaseUrl, request } from "./http.js";
 
 export { IvanaError } from "./http.js";
+export { createPayFlow } from "./payFlow.js";
+export { createPendingPaymentStore } from "./pending.js";
+export { connectWallet, isMobileBrowser, listWallets, phantomBrowseUrl, solflareBrowseUrl } from "./wallets.js";
 
 const MAX_BLOCKHASH_RETRIES = 2;
 const STATUS_POLL_ATTEMPTS = 3;
 const STATUS_POLL_DELAY_MS = 800;
 const RPC_CONFIRMATION_TIMEOUT_MS = 8000;
 const VERIFY_RETRY_DELAYS_MS = [400, 800, 1600];
+const LEGACY_PENDING_EXPIRY_MS = 5 * 60_000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -310,5 +314,79 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * closed the tab mid-checkout. Safe to call more than once.
      */
     verifyPayment,
+
+    /**
+     * Resolve a saved, signed payment before offering "pay" again (after a
+     * reload, a closed tab or a dropped connection). Never says a payment
+     * failed just because the RPC can't see it yet: it answers "expired" only
+     * when the intent is still unpaid, the blockhash has passed its last valid
+     * height, and the signature is still absent from transaction history.
+     *
+     * - "completed": paid and verified; fulfil, and drop the saved record.
+     * - "pending": may still land; tell the buyer not to pay again, ask later.
+     * - "failed": failed on chain, nothing was paid; drop the record.
+     * - "expired": can never land; drop the record and allow a new payment.
+     * - "unavailable": IVANA or the RPC couldn't answer; treat as pending.
+     *
+     * @param {{ intentId: string, signature: string, walletAddress?: string, paymentMethod?: "USDC"|"USDT"|"HBX", lastValidBlockHeight?: number, savedAt?: number }} pending
+     * @returns {Promise<"completed"|"pending"|"failed"|"expired"|"unavailable">}
+     */
+    async recoverPayment(pending) {
+      if (!pending?.intentId || !pending?.signature) {
+        throw new IvanaError("recoverPayment needs the saved intentId and signature.");
+      }
+      const intentStatus = async () => {
+        try {
+          return (await request(client, "GET", `/webthree/payment-intents/${encodeURIComponent(pending.intentId)}`))?.status;
+        } catch (error) {
+          // IVANA hides an expired unpaid intent with 404; the chain still decides.
+          if (error?.status === 404) return "not-found";
+          throw error;
+        }
+      };
+      const unpaid = (status) => status === "created" || status === "expired" || status === "not-found";
+      try {
+        const status = await intentStatus();
+        if (status === "completed") return "completed";
+        if (!unpaid(status)) return "pending";
+
+        const lookup = await connection.getSignatureStatuses([pending.signature], { searchTransactionHistory: true });
+        const onChain = lookup?.value?.[0];
+        if (onChain?.err) return "failed";
+        if (onChain?.confirmationStatus === "confirmed" || onChain?.confirmationStatus === "finalized") {
+          if (!pending.walletAddress || !pending.paymentMethod) return "pending";
+          const verification = await verifyPayment({
+            intentId: pending.intentId,
+            signature: pending.signature,
+            walletAddress: pending.walletAddress,
+            paymentMethod: pending.paymentMethod,
+          });
+          return verification?.success === true ? "completed" : "pending";
+        }
+        if (onChain) return "pending";
+
+        const lastValid = Number(pending.lastValidBlockHeight);
+        const expired = Number.isSafeInteger(lastValid) && lastValid > 0
+          ? (await connection.getBlockHeight("finalized")) > lastValid
+          // Without a height, wait well past a blockhash's ~60-90 s lifetime.
+          : Date.now() - Number(pending.savedAt) >= LEGACY_PENDING_EXPIRY_MS;
+        if (!expired) return "pending";
+
+        // Recheck everything after observing expiry before releasing the buyer.
+        const transaction = await connection.getTransaction(pending.signature, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        });
+        if (transaction) return "pending";
+        const recheck = await connection.getSignatureStatuses([pending.signature], { searchTransactionHistory: true });
+        if (recheck?.value?.[0]) return "pending";
+        const finalStatus = await intentStatus();
+        if (finalStatus === "completed") return "completed";
+        return finalStatus === "created" || finalStatus === "not-found" ? "expired" : "pending";
+      } catch {
+        // Any failure keeps the buyer protected from paying twice.
+        return "unavailable";
+      }
+    },
   };
 }
