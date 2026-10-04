@@ -151,6 +151,43 @@ as a small state machine with `choose`, `pay`, `recover` and `subscribe`, and
 `listWallets()`, `createPendingPaymentStore()` and
 `checkout.recoverPayment(saved)` are available on their own.
 
+### In person: Solana Pay QR
+
+For a stall, a pop-up or an event door, show a QR code the buyer scans with
+Phantom or any [Solana Pay](https://docs.solanapay.com) wallet:
+
+```jsx
+import { QRCodeSVG } from "qrcode.react"; // or any QR library
+import { SolanaPayQR } from "@habix/ivana-checkout/react";
+
+<SolanaPayQR
+  intentId={intentId}
+  connection={connection}
+  paymentMethod="USDC"
+  renderQr={(url) => <QRCodeSVG value={url} size={256} />}
+  onPaid={({ signature }) => markPaid(signature)}
+/>;
+```
+
+The QR is a Solana Pay *transaction request* on IVANA. The wallet fetches the
+same buyer-paid transaction as browser checkout (every leg, the AML screen,
+the intent memo), shows the merchant's name, and the buyer signs and sends it
+from their phone. The transaction carries a reference key derived from the
+intent; the component watches for it and verifies the payment with IVANA a
+few seconds after it confirms. If no screen is watching, IVANA settles the
+payment on its own and your settlement consumer still receives it.
+
+Without React:
+
+```js
+const url = checkout.solanaPayUrl(intentId, "USDC"); // put this in a QR code
+const { signature } = await checkout.waitForSolanaPayment({ intentId, paymentMethod: "USDC" });
+```
+
+On a phone, the same `url` works as a link that opens the wallet. Each intent
+can be paid once: if the buyer declines in the wallet, create a new intent
+and show its QR.
+
 ### Optional AML pre-check
 
 ```js

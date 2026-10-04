@@ -68,6 +68,19 @@ export interface IvanaCheckout {
    * or the RPC couldn't answer (treat as pending).
    */
   recoverPayment(pending: PendingPayment): Promise<"completed" | "pending" | "failed" | "expired" | "unavailable">;
+  /** The `solana:` URL for a QR code that pays this intent with any Solana Pay wallet. */
+  solanaPayUrl(intentId: string, paymentMethod?: PaymentMethod): string;
+  /**
+   * Wait for the buyer's wallet to pay the intent's Solana Pay QR, then verify
+   * it with IVANA. Rejects with code TIMEOUT, ABORTED or SOLANA_TRANSACTION_FAILED.
+   */
+  waitForSolanaPayment(options: {
+    intentId: string;
+    paymentMethod?: PaymentMethod;
+    intervalMs?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<{ signature: string; walletAddress: string; verification: Record<string, unknown> }>;
 }
 
 export declare function createIvanaCheckout(options: {
@@ -150,4 +163,9 @@ export declare function createPayFlow(options: {
   href?: string;
   onPaid?: (result: { signature: string; verification: Record<string, unknown> }) => unknown;
 }): PayFlow;
+
+/** The read-only reference key IVANA adds to a Solana Pay payment for this intent (base58). */
+export declare function solanaPayReference(intentId: string): Promise<string>;
+/** The `solana:` transaction-request URL for an intent. */
+export declare function solanaPayUrl(options: { intentId: string; paymentMethod?: PaymentMethod; baseUrl?: string }): string;
 

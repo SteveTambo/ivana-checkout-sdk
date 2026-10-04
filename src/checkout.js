@@ -10,9 +10,11 @@
 
 import { base58Encode } from "./base58.js";
 import { IvanaError, normalizeBaseUrl, request } from "./http.js";
+import { solanaPayReference, solanaPayUrl } from "./solanaPay.js";
 
 export { IvanaError } from "./http.js";
 export { createPayFlow } from "./payFlow.js";
+export { solanaPayReference, solanaPayUrl } from "./solanaPay.js";
 export { createPendingPaymentStore } from "./pending.js";
 export { connectWallet, isMobileBrowser, listWallets, phantomBrowseUrl, solflareBrowseUrl } from "./wallets.js";
 
@@ -314,6 +316,71 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * closed the tab mid-checkout. Safe to call more than once.
      */
     verifyPayment,
+
+    /**
+     * The `solana:` URL for a QR code that pays this intent with any Solana
+     * Pay wallet (see waitForSolanaPayment).
+     * @param {string} intentId
+     * @param {"USDC"|"USDT"|"HBX"} [paymentMethod]
+     */
+    solanaPayUrl(intentId, paymentMethod = "USDC") {
+      return solanaPayUrl({ intentId, paymentMethod, baseUrl: client.baseUrl });
+    },
+
+    /**
+     * Wait for the buyer to pay a Solana Pay QR, then verify it with IVANA.
+     * Watches the intent's reference key on chain, so it resolves seconds
+     * after the wallet's transaction confirms.
+     *
+     * @param {{ intentId: string, paymentMethod?: "USDC"|"USDT"|"HBX", intervalMs?: number, timeoutMs?: number, signal?: AbortSignal }} options
+     * @returns {Promise<{ signature: string, walletAddress: string, verification: Record<string, unknown> }>}
+     */
+    async waitForSolanaPayment({ intentId, paymentMethod = "USDC", intervalMs = 1500, timeoutMs = 15 * 60_000, signal }) {
+      if (!intentId) throw new IvanaError("waitForSolanaPayment needs an intentId.");
+      const { PublicKey } = await import("@solana/web3.js");
+      const reference = new PublicKey(await solanaPayReference(intentId));
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (signal?.aborted) throw new IvanaError("Stopped waiting for the payment.", { code: "ABORTED" });
+        let found;
+        try {
+          [found] = await connection.getSignaturesForAddress(reference, { limit: 1 }, "confirmed");
+        } catch {
+          // A flaky RPC read just means "not yet"; keep watching.
+        }
+        if (found?.err) {
+          throw new IvanaError("The Solana transaction failed on chain. No payment was made.", {
+            code: "SOLANA_TRANSACTION_FAILED",
+            details: found.err,
+          });
+        }
+        if (found) {
+          const transaction = await connection.getTransaction(found.signature, {
+            commitment: "confirmed",
+            maxSupportedTransactionVersion: 0,
+          });
+          const message = transaction?.transaction?.message;
+          const feePayer = (message?.staticAccountKeys || message?.accountKeys)?.[0];
+          if (feePayer) {
+            const walletAddress = typeof feePayer === "string" ? feePayer : feePayer.toBase58();
+            let verification;
+            try {
+              verification = await verifyPayment({ intentId, signature: found.signature, walletAddress, paymentMethod });
+            } catch (error) {
+              // IVANA's reconciler may have settled it first; verify then refuses.
+              const intent = await request(client, "GET", `/webthree/payment-intents/${encodeURIComponent(intentId)}`).catch(() => null);
+              if (intent?.status !== "completed") throw error;
+              verification = { success: true, settledBy: "ivana" };
+            }
+            return { signature: found.signature, walletAddress, verification };
+          }
+        }
+        if (Date.now() >= deadline) {
+          throw new IvanaError("No payment arrived for this QR code in time.", { code: "TIMEOUT" });
+        }
+        await delay(intervalMs);
+      }
+    },
 
     /**
      * Resolve a saved, signed payment before offering "pay" again (after a

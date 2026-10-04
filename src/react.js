@@ -8,7 +8,7 @@
  * newer is an optional peer dependency, needed only for this entry point.
  */
 
-import { createElement as h, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { createElement as h, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createIvanaCheckout } from "./checkout.js";
 import { createPayFlow } from "./payFlow.js";
 
@@ -104,4 +104,64 @@ export function IvanaPayButton({ label, className, ...options }) {
         button(label || `Pay with ${method}`, () => payment.choose()),
       ]);
   }
+}
+
+/**
+ * Show a Solana Pay QR for an intent and wait for the buyer's wallet to pay
+ * it. `status` is "waiting", "paid" or "error" (`error.code` TIMEOUT or
+ * SOLANA_TRANSACTION_FAILED means a fresh intent is needed).
+ *
+ * @param {Omit<Parameters<typeof useIvanaPayment>[0], "href"> & { timeoutMs?: number }} options
+ */
+export function useSolanaPayment({ intentId, connection, checkout, baseUrl, paymentMethod = "USDC", onPaid, timeoutMs }) {
+  const onPaidRef = useRef(onPaid);
+  onPaidRef.current = onPaid;
+  const client = useMemo(
+    () => checkout || createIvanaCheckout({ connection, baseUrl }),
+    [checkout, connection, baseUrl],
+  );
+  const url = useMemo(() => client.solanaPayUrl(intentId, paymentMethod), [client, intentId, paymentMethod]);
+  const [state, setState] = useState({ status: "waiting", signature: null, error: null });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "waiting", signature: null, error: null });
+    client
+      .waitForSolanaPayment({ intentId, paymentMethod, timeoutMs, signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setState({ status: "paid", signature: result.signature, error: null });
+        onPaidRef.current?.(result);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setState({ status: "error", signature: null, error: { code: error?.code || "PAYMENT_FAILED", message: error?.message } });
+      });
+    return () => controller.abort();
+  }, [client, intentId, paymentMethod, timeoutMs]);
+
+  return { url, ...state };
+}
+
+/**
+ * Drop-in Solana Pay QR for in-person payment. Pass `renderQr` to draw the
+ * code with your QR library (for example `(url) => <QRCodeSVG value={url} />`
+ * from qrcode.react); without it, a "Pay with a Solana wallet" link is shown,
+ * which opens the wallet when tapped on a phone.
+ *
+ * @param {Parameters<typeof useSolanaPayment>[0] & { renderQr?: (url: string) => any, className?: string }} props
+ */
+export function SolanaPayQR({ renderQr, className, ...options }) {
+  const payment = useSolanaPayment(options);
+  const children =
+    payment.status === "paid"
+      ? [h("p", { className: "ivana-pay__message", role: "status" }, `Paid. Transaction ${shortSignature(payment.signature)}.`)]
+      : payment.status === "error"
+        ? [h("p", { className: "ivana-pay__message", role: "alert" }, payment.error.message || "The payment didn't go through.")]
+        : [
+            renderQr ? h("div", { className: "ivana-pay__qr" }, renderQr(payment.url)) : null,
+            h("a", { href: payment.url, className: "ivana-pay__link" }, "Pay with a Solana wallet"),
+            h("p", { className: "ivana-pay__message", role: "status" }, "Scan with Phantom or another Solana Pay wallet. Waiting for payment…"),
+          ];
+  return h("div", { className: ["ivana-pay", "ivana-pay--qr", className].filter(Boolean).join(" ") }, ...children);
 }

@@ -21,3 +21,20 @@ export declare function useIvanaPayment(
 export declare function IvanaPayButton(
   props: IvanaPaymentOptions & { label?: string; className?: string },
 ): ReturnType<typeof import("react").createElement>;
+
+export interface SolanaPaymentState {
+  url: string;
+  status: "waiting" | "paid" | "error";
+  signature: string | null;
+  error: { code: string; message?: string } | null;
+}
+
+export declare function useSolanaPayment(
+  options: Omit<IvanaPaymentOptions, "href"> & { timeoutMs?: number },
+): SolanaPaymentState;
+
+/** Solana Pay QR for in-person payment. Draw the code with `renderQr`, e.g. `(url) => <QRCodeSVG value={url} />`. */
+export declare function SolanaPayQR(
+  props: Omit<IvanaPaymentOptions, "href"> & { timeoutMs?: number; renderQr?: (url: string) => unknown; className?: string },
+): ReturnType<typeof import("react").createElement>;
+
