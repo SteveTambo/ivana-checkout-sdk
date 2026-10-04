@@ -6,7 +6,7 @@ export declare class IvanaError extends Error {
   name: "IvanaError";
   /** HTTP status, when the error came from the API. */
   status?: number;
-  /** e.g. TRANSACTION_NOT_FOUND, SOLANA_TRANSACTION_FAILED, USER_REJECTED, VERIFY_FAILED, SEND_FAILED. */
+  /** e.g. TRANSACTION_NOT_FOUND, SOLANA_TRANSACTION_FAILED, USER_REJECTED, VERIFY_FAILED, SEND_FAILED, RPC_UNAVAILABLE. */
   code?: string;
   details?: unknown;
   /**

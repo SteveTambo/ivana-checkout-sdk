@@ -172,6 +172,7 @@ a `code` where one applies:
 | `VERIFY_FAILED` | Broadcast, but verification rejected it. `error.signature` is set. |
 | `SEND_FAILED` | The wallet didn't sign, or the node refused the transaction. Nothing was sent. |
 | `BLOCKHASH_EXPIRED` | The buyer took too long to approve, after automatic retries. |
+| `RPC_UNAVAILABLE` | The Solana RPC could not be reached (public RPCs often 403 browsers; use your own). Nothing was sent. Before the payment is built, the same intent can be paid again. |
 | `WALLET_NOT_CONNECTED` | No wallet, or one without `signTransaction`. |
 | `TIMEOUT` / `NETWORK_ERROR` | IVANA could not be reached. |
 

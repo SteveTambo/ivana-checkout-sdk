@@ -47,6 +47,17 @@ function onChainFailure(err) {
   });
 }
 
+async function getBlockhash(connection) {
+  try {
+    return await connection.getLatestBlockhash("confirmed");
+  } catch (error) {
+    throw new IvanaError(`Could not reach the Solana RPC, so nothing was sent: ${error?.message || error}`, {
+      code: "RPC_UNAVAILABLE",
+      cause: error,
+    });
+  }
+}
+
 /** @param {string} base64 */
 function base64ToBytes(base64) {
   const binary = atob(base64);
@@ -175,6 +186,10 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
       }
       const walletAddress = walletAddressOf(wallet);
 
+      // Building uses up the intent, so reach the RPC first: if it is down,
+      // fail while the buyer can still retry the same intent.
+      let preflightBlockhash = await getBlockhash(connection);
+
       const built = await request(client, "POST", "/webthree/build-payment-transaction", {
         intentId,
         walletAddress,
@@ -187,7 +202,17 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
         const transaction = TransactionClass.from(base64ToBytes(built.transaction));
         // Refresh from the broadcasting RPC just before approval, so preflight
         // sees the same recent blockhash. The payment legs never change.
-        const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+        let latestBlockhash;
+        try {
+          latestBlockhash = await getBlockhash(connection);
+        } catch (error) {
+          // The intent is built now, so sign with the preflight blockhash
+          // rather than strand it. If that is stale, the send is refused as
+          // expired and the next attempt refreshes again.
+          if (!preflightBlockhash) throw error;
+          latestBlockhash = preflightBlockhash;
+        }
+        preflightBlockhash = undefined;
         transaction.recentBlockhash = latestBlockhash.blockhash;
 
         // A signed transaction already carries its own signature, so it is

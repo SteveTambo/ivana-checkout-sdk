@@ -131,6 +131,37 @@ test("an expired blockhash is refreshed and re-signed without rebuilding the pay
   assert.equal(calls.filter((c) => c.key === "POST /webthree/build-payment-transaction").length, 1);
 });
 
+test("an unreachable RPC fails before IVANA builds, so the intent is not used up", async () => {
+  const { client, calls } = checkout(
+    { "POST /webthree/build-payment-transaction": built },
+    fakeConnection({ getLatestBlockhash: async () => { throw new Error("403 : Access forbidden"); } }),
+  );
+
+  await assert.rejects(client.pay({ intentId: "intent-1", wallet: fakeWallet() }), { code: "RPC_UNAVAILABLE" });
+  assert.equal(calls.some((c) => c.key === "POST /webthree/build-payment-transaction"), false);
+});
+
+test("a blockhash refresh that fails after the build signs with the preflight blockhash", async () => {
+  let lookups = 0;
+  const { client } = checkout(
+    { "POST /webthree/build-payment-transaction": built, "POST /webthree/verify-payment": verified },
+    fakeConnection({
+      getLatestBlockhash: async () => {
+        lookups += 1;
+        if (lookups > 1) throw new Error("fetch failed");
+        return { blockhash: "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W", lastValidBlockHeight: 100 };
+      },
+    }),
+  );
+  const wallet = fakeWallet();
+
+  const result = await client.pay({ intentId: "intent-1", wallet });
+
+  assert.equal(lookups, 2, "the refresh after the build was attempted and failed");
+  assert.equal(result.signature, SIGNATURE);
+  assert.equal(wallet.signed[0].recentBlockhash, "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W");
+});
+
 test("an on-chain failure is reported and never verified", async () => {
   const { client, calls } = checkout(
     { "POST /webthree/build-payment-transaction": built, "POST /webthree/verify-payment": verified },
