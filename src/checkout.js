@@ -27,6 +27,18 @@ const LEGACY_PENDING_EXPIRY_MS = 5 * 60_000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * How long a Solana Pay wait sleeps between RPC checks, by time already
+ * waited: quick while a payment is most likely, then slower, so a QR left
+ * open doesn't spend an RPC request every second or two.
+ * @param {number} elapsedMs
+ */
+export function solanaPayPollDelay(elapsedMs) {
+  if (elapsedMs < 60_000) return 2_000;
+  if (elapsedMs < 5 * 60_000) return 5_000;
+  return 10_000;
+}
+
 function isBlockhashExpired(error) {
   return /blockhash not found|block height exceeded|failed to simulate|simulation failed/i.test(
     error?.message || "",
@@ -332,14 +344,20 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * Watches the intent's reference key on chain, so it resolves seconds
      * after the wallet's transaction confirms.
      *
+     * Each check is one RPC request. By default it checks every 2 seconds for
+     * the first minute (when a phone payment usually lands), every 5 seconds
+     * until 5 minutes, then every 10 seconds: about 140 requests over the full
+     * 15 minutes instead of 600. Pass `intervalMs` for a fixed interval.
+     *
      * @param {{ intentId: string, paymentMethod?: "USDC"|"USDT"|"HBX", intervalMs?: number, timeoutMs?: number, signal?: AbortSignal }} options
      * @returns {Promise<{ signature: string, walletAddress: string, verification: Record<string, unknown> }>}
      */
-    async waitForSolanaPayment({ intentId, paymentMethod = "USDC", intervalMs = 1500, timeoutMs = 15 * 60_000, signal }) {
+    async waitForSolanaPayment({ intentId, paymentMethod = "USDC", intervalMs, timeoutMs = 15 * 60_000, signal }) {
       if (!intentId) throw new IvanaError("waitForSolanaPayment needs an intentId.");
       const { PublicKey } = await import("@solana/web3.js");
       const reference = new PublicKey(await solanaPayReference(intentId));
-      const deadline = Date.now() + timeoutMs;
+      const startedAt = Date.now();
+      const deadline = startedAt + timeoutMs;
       for (;;) {
         if (signal?.aborted) throw new IvanaError("Stopped waiting for the payment.", { code: "ABORTED" });
         let found;
@@ -378,7 +396,7 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
         if (Date.now() >= deadline) {
           throw new IvanaError("No payment arrived for this QR code in time.", { code: "TIMEOUT" });
         }
-        await delay(intervalMs);
+        await delay(intervalMs ?? solanaPayPollDelay(Date.now() - startedAt));
       }
     },
 

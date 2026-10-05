@@ -184,6 +184,8 @@ const url = checkout.solanaPayUrl(intentId, "USDC"); // put this in a QR code
 const { signature } = await checkout.waitForSolanaPayment({ intentId, paymentMethod: "USDC" });
 ```
 
+Each check while waiting is one Solana RPC request. The wait checks every 2 seconds for the first minute, every 5 seconds until 5 minutes, then every 10 seconds, about 140 requests if a QR is left open for the full 15 minutes. Pass `intervalMs` for a fixed interval, and `signal` to stop waiting when the QR is closed.
+
 On a phone, the same `url` works as a link that opens the wallet. Each intent
 can be paid once: if the buyer declines in the wallet, create a new intent
 and show its QR.

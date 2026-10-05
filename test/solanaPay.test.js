@@ -111,3 +111,15 @@ test("SolanaPayQR renders the QR through renderQr, with a tappable link", () => 
   assert.match(html, /<svg data-url="solana:https%3A%2F%2Fx%2Fintent-1">/);
   assert.match(html, /<a href="solana:https%3A%2F%2Fx%2Fintent-1" class="ivana-pay__link">Pay with a Solana wallet<\/a>/);
 });
+
+test("a QR wait checks often while a payment is likely, then backs off to spare the RPC", async () => {
+  const { solanaPayPollDelay } = await import("../src/checkout.js");
+  assert.equal(solanaPayPollDelay(0), 2_000);
+  assert.equal(solanaPayPollDelay(59_999), 2_000);
+  assert.equal(solanaPayPollDelay(60_000), 5_000);
+  assert.equal(solanaPayPollDelay(5 * 60_000), 10_000);
+  // The whole 15-minute default wait, one RPC request per check.
+  let checks = 0;
+  for (let t = 0; t < 15 * 60_000; t += solanaPayPollDelay(t)) checks += 1;
+  assert.ok(checks <= 150, `${checks} checks`);
+});

@@ -77,6 +77,7 @@ export interface IvanaCheckout {
   waitForSolanaPayment(options: {
     intentId: string;
     paymentMethod?: PaymentMethod;
+    /** Fixed wait between RPC checks. Default: 2 s for the first minute, 5 s until 5 minutes, then 10 s. */
     intervalMs?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -169,3 +170,5 @@ export declare function solanaPayReference(intentId: string): Promise<string>;
 /** The `solana:` transaction-request URL for an intent. */
 export declare function solanaPayUrl(options: { intentId: string; paymentMethod?: PaymentMethod; baseUrl?: string }): string;
 
+/** Milliseconds a Solana Pay wait sleeps between RPC checks after waiting `elapsedMs`: 2 s, then 5 s after a minute, then 10 s after five. */
+export function solanaPayPollDelay(elapsedMs: number): number;
