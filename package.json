@@ -30,7 +30,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=96 --test-coverage-branches=81 --test-coverage-functions=95 \"test/*.test.js\"",
+    "prepublishOnly": "npm run test:coverage"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.95.0",
@@ -38,6 +40,7 @@
   },
   "devDependencies": {
     "@solana/web3.js": "^1.98.4",
+    "jsdom": "^25.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
