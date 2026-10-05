@@ -6,7 +6,11 @@ export declare class IvanaError extends Error {
   name: "IvanaError";
   /** HTTP status, when the error came from the API. */
   status?: number;
-  /** e.g. TRANSACTION_NOT_FOUND, SOLANA_TRANSACTION_FAILED, USER_REJECTED, VERIFY_FAILED, SEND_FAILED, RPC_UNAVAILABLE. */
+  /**
+   * e.g. TRANSACTION_NOT_FOUND, SOLANA_TRANSACTION_FAILED, USER_REJECTED, VERIFY_FAILED, SEND_FAILED,
+   * BLOCKHASH_EXPIRED, RPC_UNAVAILABLE, ATTEMPT_NOT_REGISTERED, TIMEOUT, NETWORK_ERROR, ABORTED,
+   * INVALID_RESPONSE, INVALID_INPUT, INVALID_CONFIG. See the README's error table.
+   */
   code?: string;
   details?: unknown;
   /**
@@ -141,6 +145,8 @@ export interface PayFlowState {
   error: { code: string; message: string } | null;
   result: { signature: string; verification: Record<string, unknown> } | null;
   signature: string | null;
+  /** What `onPaid` threw, if it did. The payment is still "paid". */
+  onPaidError: unknown;
 }
 
 export interface PayFlow {
@@ -162,7 +168,13 @@ export declare function createPayFlow(options: {
   store?: PendingPaymentStore;
   /** The page to reopen inside a mobile wallet; defaults to the current URL. */
   href?: string;
+  /**
+   * Called once the payment is verified. If it throws, the state stays "paid"
+   * and the error is on `onPaidError`.
+   */
   onPaid?: (result: { signature: string; verification: Record<string, unknown> }) => unknown;
+  /** Replaces wallet discovery, e.g. to offer other wallets or to test. */
+  listWallets?: typeof listWallets;
 }): PayFlow;
 
 /** The read-only reference key IVANA adds to a Solana Pay payment for this intent (base58). */

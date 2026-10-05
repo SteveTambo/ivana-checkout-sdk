@@ -58,13 +58,13 @@ export function createSettlementConsumer({
   maxPages = DEFAULTS.maxPages,
 }) {
   if (typeof server?.listSettlementEvents !== "function") {
-    throw new IvanaError("createSettlementConsumer needs the client from createIvanaServer as `server`.");
+    throw new IvanaError("createSettlementConsumer needs the client from createIvanaServer as `server`.", { code: "INVALID_CONFIG" });
   }
   for (const [name, fn] of Object.entries({ apply, loadCursor, saveCursor })) {
-    if (typeof fn !== "function") throw new IvanaError(`createSettlementConsumer needs a ${name} function.`);
+    if (typeof fn !== "function") throw new IvanaError(`createSettlementConsumer needs a ${name} function.`, { code: "INVALID_CONFIG" });
   }
   if (!(Number.isInteger(parkAfter) && parkAfter >= 1)) {
-    throw new IvanaError("parkAfter must be a whole number of at least 1.");
+    throw new IvanaError("parkAfter must be a whole number of at least 1.", { code: "INVALID_CONFIG" });
   }
 
   /** Consecutive permanent failures per event id, for parking. */
@@ -88,7 +88,7 @@ export function createSettlementConsumer({
         const events = Array.isArray(body?.events) ? body.events : [];
         for (const event of events) {
           if (typeof event?.cursor !== "string" || !event.id) {
-            throw new IvanaError("A settlement event arrived without an id or cursor.");
+            throw new IvanaError("A settlement event arrived without an id or cursor.", { code: "INVALID_RESPONSE" });
           }
           try {
             await apply(event);

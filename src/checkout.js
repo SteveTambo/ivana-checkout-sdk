@@ -39,8 +39,12 @@ export function solanaPayPollDelay(elapsedMs) {
   return 10_000;
 }
 
+// Only a stale blockhash is worth a retry with a fresh one. A simulation
+// failure for any other reason (not enough funds for the fee, a program
+// error) fails the same way every time, so it is reported at once instead of
+// asking the buyer to approve it again.
 function isBlockhashExpired(error) {
-  return /blockhash not found|block height exceeded|failed to simulate|simulation failed/i.test(
+  return /blockhash not found|block height exceeded|blockhash.{0,40}(expired|too old)|(expired|too old).{0,40}blockhash/i.test(
     error?.message || "",
   );
 }
@@ -137,7 +141,9 @@ async function confirmSignature(connection, signature, latestBlockhash) {
  */
 export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, timeoutMs, Transaction }) {
   if (!connection) {
-    throw new IvanaError("createIvanaCheckout needs a @solana/web3.js Connection to broadcast with.");
+    throw new IvanaError("createIvanaCheckout needs a @solana/web3.js Connection to broadcast with.", {
+      code: "INVALID_CONFIG",
+    });
   }
   const client = {
     baseUrl: normalizeBaseUrl(baseUrl),
@@ -145,7 +151,7 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
     timeoutMs,
   };
   if (typeof client.fetch !== "function") {
-    throw new IvanaError("No fetch implementation found. Pass one as options.fetch.");
+    throw new IvanaError("No fetch implementation found. Pass one as options.fetch.", { code: "INVALID_CONFIG" });
   }
   const loadTransaction = async () => Transaction || (await import("@solana/web3.js")).Transaction;
 
@@ -198,7 +204,7 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * @returns {Promise<{ signature: string, verification: Record<string, unknown> }>}
      */
     async pay({ intentId, wallet, paymentMethod = "USDC", onSignature, onRejected, onRetry }) {
-      if (!intentId) throw new IvanaError("pay needs the intentId from your backend.");
+      if (!intentId) throw new IvanaError("pay needs the intentId from your backend.", { code: "INVALID_INPUT" });
       if (typeof wallet?.signTransaction !== "function") {
         throw new IvanaError("The wallet must support signTransaction.", { code: "WALLET_NOT_CONNECTED" });
       }
@@ -262,15 +268,27 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
         // Register the exact signed attempt before broadcast. This binds a
         // possible post-checkout-expiry confirmation to a blockhash lease the
         // service saw while the checkout was still open.
-        await request(client, "POST", "/webthree/register-payment-attempt", {
-          intentId,
-          signature,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          walletAddress,
-          paymentMethod,
-        });
-        await onSignature?.(signature, latestBlockhash);
+        //
+        // Nothing has been broadcast yet, so if this or the caller's
+        // onSignature fails the buyer hasn't paid and can try again. Say so
+        // with a code of its own, rather than a bare TIMEOUT or HTTP status
+        // that reads as if the payment itself might be in flight.
+        try {
+          await request(client, "POST", "/webthree/register-payment-attempt", {
+            intentId,
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            walletAddress,
+            paymentMethod,
+          });
+          await onSignature?.(signature, latestBlockhash);
+        } catch (error) {
+          throw new IvanaError(
+            `The payment attempt could not be registered, so nothing was sent: ${error?.message || error}`,
+            { status: error?.status, code: "ATTEMPT_NOT_REGISTERED", details: error?.details, cause: error },
+          );
+        }
 
         // True when the broadcast's outcome can't be told from here.
         let sendUncertain = false;
@@ -353,7 +371,7 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      * @returns {Promise<{ signature: string, walletAddress: string, verification: Record<string, unknown> }>}
      */
     async waitForSolanaPayment({ intentId, paymentMethod = "USDC", intervalMs, timeoutMs = 15 * 60_000, signal }) {
-      if (!intentId) throw new IvanaError("waitForSolanaPayment needs an intentId.");
+      if (!intentId) throw new IvanaError("waitForSolanaPayment needs an intentId.", { code: "INVALID_INPUT" });
       const { PublicKey } = await import("@solana/web3.js");
       const reference = new PublicKey(await solanaPayReference(intentId));
       const startedAt = Date.now();
@@ -418,7 +436,7 @@ export function createIvanaCheckout({ connection, baseUrl, fetch: fetchImpl, tim
      */
     async recoverPayment(pending) {
       if (!pending?.intentId || !pending?.signature) {
-        throw new IvanaError("recoverPayment needs the saved intentId and signature.");
+        throw new IvanaError("recoverPayment needs the saved intentId and signature.", { code: "INVALID_INPUT" });
       }
       const intentStatus = async () => {
         try {

@@ -1,10 +1,22 @@
 {
   "name": "@habix/ivana-checkout",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Non-custodial Solana checkout on the IVANA payments engine: one buyer-signed transaction pays the merchant, VAT, the platform fee and suppliers.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "Habix Group",
+  "main": "./src/checkout.js",
+  "types": "./src/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "server": [
+        "./src/server.d.ts"
+      ],
+      "react": [
+        "./src/react.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
@@ -27,11 +39,11 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=96 --test-coverage-branches=81 --test-coverage-functions=95 \"test/*.test.js\"",
+    "test": "node scripts/run-tests.mjs",
+    "test:coverage": "node scripts/run-tests.mjs --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=96 --test-coverage-branches=81 --test-coverage-functions=95",
     "prepublishOnly": "npm run test:coverage"
   },
   "peerDependencies": {

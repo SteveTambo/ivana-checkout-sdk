@@ -10,10 +10,12 @@
  *   "choosing"   the buyer is picking a wallet (`wallets` is filled)
  *   "paying"     wallet prompt open, or the payment is confirming
  *   "pending"    sent, outcome not known yet: do NOT offer to pay again
- *   "paid"       verified (`result` holds the signature and verification)
+ *   "paid"       verified (`result` holds the signature and verification;
+ *                `onPaidError` holds whatever your `onPaid` threw, if it did)
  *   "error"      nothing was paid; `error` says why and paying again is safe
  */
 
+import { IvanaError } from "./http.js";
 import { createPendingPaymentStore } from "./pending.js";
 import { connectWallet, listWallets } from "./wallets.js";
 
@@ -37,18 +39,34 @@ export function createPayFlow({
   onPaid,
   listWallets: discover = listWallets,
 }) {
-  if (!checkout || !intentId) throw new Error("createPayFlow needs a checkout and an intentId.");
+  if (!checkout || !intentId) {
+    throw new IvanaError("createPayFlow needs a checkout and an intentId.", { code: "INVALID_INPUT" });
+  }
 
-  let state = { status: "idle", wallets: [], error: null, result: null, signature: null };
+  let state = { status: "idle", wallets: [], error: null, result: null, signature: null, onPaidError: null };
   const listeners = new Set();
   const set = (patch) => {
     state = { ...state, ...patch };
-    for (const listener of listeners) listener(state);
+    // A listener's bug must not change the payment's outcome or stop the
+    // others from hearing about it.
+    for (const listener of [...listeners]) {
+      try {
+        listener(state);
+      } catch (error) {
+        console.error("[ivana-checkout] a pay flow subscriber threw:", error);
+      }
+    }
   };
   const paid = async (result) => {
     store.clear(intentId);
-    set({ status: "paid", result, signature: result.signature, error: null });
-    await onPaid?.(result);
+    set({ status: "paid", result, signature: result.signature, error: null, onPaidError: null });
+    // The buyer has paid. If the merchant's own hook fails, say so without
+    // turning a verified payment into an error: `onPaidError` carries it.
+    try {
+      await onPaid?.(result);
+    } catch (error) {
+      set({ onPaidError: error });
+    }
   };
 
   /**
@@ -149,6 +167,7 @@ function friendly(error) {
     BLOCKHASH_EXPIRED: "The approval took too long. Nothing was paid; please try again.",
     RPC_UNAVAILABLE: "Couldn't reach the Solana network. Nothing was paid; please try again.",
     SOLANA_TRANSACTION_FAILED: "The transaction failed on chain. Nothing was paid.",
+    ATTEMPT_NOT_REGISTERED: "We couldn't start the payment, so nothing was sent. Please try again.",
   };
   return { code: code || "PAYMENT_FAILED", message: messages[code] || error?.message || "The payment didn't go through." };
 }

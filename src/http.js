@@ -26,7 +26,7 @@ export class IvanaError extends Error {
 export function normalizeBaseUrl(baseUrl) {
   const url = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(url)) {
-    throw new IvanaError(`baseUrl must be an http(s) URL, got "${baseUrl}".`);
+    throw new IvanaError(`baseUrl must be an http(s) URL, got "${baseUrl}".`, { code: "INVALID_CONFIG" });
   }
   return url;
 }
@@ -39,35 +39,63 @@ export function normalizeBaseUrl(baseUrl) {
  */
 export async function request(client, method, path, body) {
   const controller = new AbortController();
+  // One deadline for the whole exchange, body included: a server that sends
+  // headers and then stalls must time out too.
   const timer = setTimeout(() => controller.abort(), client.timeoutMs ?? 20000);
-  let response;
-  try {
-    response = await client.fetch(`${client.baseUrl}${path}`, {
-      method,
-      headers: {
-        Accept: "application/json",
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...client.headers,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
+  const timedOut = (cause) =>
+    new IvanaError("IVANA did not respond in time.", { code: "TIMEOUT", cause });
+  // Each wait is raced against the abort, because a fetch (or a stand-in for
+  // one) that ignores the signal would otherwise leave this waiting forever.
+  const guarded = (promise) => {
+    let onAbort;
+    const aborted = new Promise((_, reject) => {
+      onAbort = () => reject(timedOut());
+      if (controller.signal.aborted) onAbort();
+      else controller.signal.addEventListener("abort", onAbort, { once: true });
     });
-  } catch (cause) {
-    throw new IvanaError(
-      controller.signal.aborted ? "IVANA did not respond in time." : "Could not reach IVANA.",
-      { code: controller.signal.aborted ? "TIMEOUT" : "NETWORK_ERROR", cause },
+    return Promise.race([promise, aborted]).finally(() =>
+      controller.signal.removeEventListener("abort", onAbort),
     );
+  };
+  let response;
+  let text;
+  try {
+    try {
+      response = await guarded(
+        client.fetch(`${client.baseUrl}${path}`, {
+          method,
+          headers: {
+            Accept: "application/json",
+            ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+            ...client.headers,
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        }),
+      );
+    } catch (cause) {
+      if (cause instanceof IvanaError) throw cause;
+      if (controller.signal.aborted) throw timedOut(cause);
+      throw new IvanaError("Could not reach IVANA.", { code: "NETWORK_ERROR", cause });
+    }
+    try {
+      text = await guarded(response.text());
+    } catch (cause) {
+      if (cause instanceof IvanaError) throw cause;
+      if (controller.signal.aborted) throw timedOut(cause);
+      throw new IvanaError("The response from IVANA was cut off.", { code: "NETWORK_ERROR", cause });
+    }
   } finally {
     clearTimeout(timer);
   }
 
   let data = null;
-  const text = await response.text();
+  let unparseable = false;
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = null;
+      unparseable = true;
     }
   }
 
@@ -81,6 +109,14 @@ export async function request(client, method, path, body) {
         details: error,
       },
     );
+  }
+  // A success that isn't JSON is a proxy or gateway page, not an answer:
+  // returning null would let callers read it as "nothing to report".
+  if (unparseable) {
+    throw new IvanaError("IVANA returned a response that is not JSON.", {
+      status: response.status,
+      code: "INVALID_RESPONSE",
+    });
   }
   return data;
 }

@@ -34,7 +34,7 @@ export { createSettlementConsumer, PermanentEventError } from "./consumer.js";
  */
 export function createIvanaServer({ apiKey, baseUrl, fetch: fetchImpl, timeoutMs, allowBrowser = false }) {
   if (!apiKey || typeof apiKey !== "string") {
-    throw new IvanaError("createIvanaServer needs your tenant apiKey.");
+    throw new IvanaError("createIvanaServer needs your tenant apiKey.", { code: "INVALID_CONFIG" });
   }
   if (!allowBrowser && typeof window !== "undefined" && typeof document !== "undefined") {
     throw new IvanaError(
@@ -48,7 +48,7 @@ export function createIvanaServer({ apiKey, baseUrl, fetch: fetchImpl, timeoutMs
     timeoutMs,
   };
   if (typeof client.fetch !== "function") {
-    throw new IvanaError("No fetch implementation found. Pass one as options.fetch.");
+    throw new IvanaError("No fetch implementation found. Pass one as options.fetch.", { code: "INVALID_CONFIG" });
   }
 
   return {
@@ -62,10 +62,10 @@ export function createIvanaServer({ apiKey, baseUrl, fetch: fetchImpl, timeoutMs
      */
     createPaymentIntent(input) {
       if (!input?.customer?.name || !input?.customer?.email) {
-        return Promise.reject(new IvanaError("customer.name and customer.email are required."));
+        return Promise.reject(new IvanaError("customer.name and customer.email are required.", { code: "INVALID_INPUT" }));
       }
       if (!Array.isArray(input.lineItems) || input.lineItems.length === 0) {
-        return Promise.reject(new IvanaError("lineItems must be a non-empty array."));
+        return Promise.reject(new IvanaError("lineItems must be a non-empty array.", { code: "INVALID_INPUT" }));
       }
       return request(client, "POST", "/webthree/payment-intents", input);
     },
@@ -105,7 +105,7 @@ export function createIvanaServer({ apiKey, baseUrl, fetch: fetchImpl, timeoutMs
      * @returns {Promise<{ intentId: string, status: string, merchantReference: string|null, netAmount: number|null, paymentMethod: string|null, walletAddress: string|null, signature: string|null, hbxRate: number|null }>}
      */
     getPaymentSettlement(intentId) {
-      if (!intentId) return Promise.reject(new IvanaError("intentId is required."));
+      if (!intentId) return Promise.reject(new IvanaError("intentId is required.", { code: "INVALID_INPUT" }));
       return request(client, "GET", `/webthree/payment-intents/${encodeURIComponent(intentId)}/settlement`);
     },
 

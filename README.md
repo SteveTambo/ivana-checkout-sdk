@@ -16,6 +16,9 @@ is a hosted service; this SDK is the open, Apache-2.0 client for it.
 - Works with any wallet that supports `signTransaction` (Phantom, Solflare,
   Mobile Wallet Adapter)
 - Zero runtime dependencies beyond `@solana/web3.js`
+- ESM only, for Node 20.19 or newer and current browsers. `require()` of the
+  package works on Node 20.19+ (which can load ES modules), but there is no
+  CommonJS build.
 
 ## How it works
 
@@ -273,7 +276,18 @@ a `code` where one applies:
 | `BLOCKHASH_EXPIRED` | The buyer took too long to approve, after automatic retries. |
 | `RPC_UNAVAILABLE` | The Solana RPC could not be reached (public RPCs often 403 browsers; use your own). Nothing was sent. Before the payment is built, the same intent can be paid again. |
 | `WALLET_NOT_CONNECTED` | No wallet, or one without `signTransaction`. |
-| `TIMEOUT` / `NETWORK_ERROR` | IVANA could not be reached. |
+| `ATTEMPT_NOT_REGISTERED` | IVANA couldn't record the signed attempt (or your `onSignature` threw), so nothing was broadcast. The buyer can try again. There is no `error.signature`. |
+| `TIMEOUT` / `NETWORK_ERROR` | IVANA could not be reached, or stopped answering. The timeout (`timeoutMs`, 20 s by default) covers the whole response, not just the headers. `TIMEOUT` is also thrown when `waitForSolanaPayment` runs out of time. |
+| `ABORTED` | `waitForSolanaPayment` was stopped through its `signal`. |
+| `INVALID_RESPONSE` | IVANA answered 2xx with something that isn't JSON (a proxy or gateway page), or a settlement event had no id or cursor. |
+| `INVALID_INPUT` / `INVALID_CONFIG` | A missing or malformed argument, or a bad option such as `baseUrl`. These are programming errors, thrown before anything is sent. |
+
+A wallet or node error that isn't about an expired blockhash (not enough SOL
+for the fee, a program error) is reported as `SEND_FAILED` straight away
+rather than retried; only a stale blockhash is retried with a fresh one.
+
+If the `onPaid` hook of `createPayFlow` throws, the flow stays `"paid"`: the
+buyer's payment was verified. The error is on `state.onPaidError`.
 
 ## Fees
 
