@@ -12,7 +12,11 @@ Neither IVANA nor this SDK ever holds funds or keys.
 IVANA powers checkout on [WRHSE](https://www.wrhse.top). The engine itself
 is a hosted service; this SDK is the open, Apache-2.0 client for it.
 
-- Payments in USDC, USDT or HBX (SPL tokens on Solana mainnet)
+- Payments in USDC, USDT or HBX (SPL tokens on Solana). The network, mainnet
+  or devnet, is whichever one the IVANA deployment runs on; nothing in the SDK
+  is tied to either
+- For USDC on Base and Polygon, use the companion package
+  [`@habix/ivana-evm-checkout`](https://github.com/SteveTambo/ivana-evm-checkout-sdk)
 - Works with any wallet that supports `signTransaction` (Phantom, Solflare,
   Mobile Wallet Adapter)
 - Zero runtime dependencies beyond `@solana/web3.js`

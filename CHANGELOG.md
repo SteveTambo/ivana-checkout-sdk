@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+Documentation only; no code changes.
+
+- The README no longer says payments are on Solana mainnet: the SDK uses
+  whichever network the IVANA deployment runs on (mainnet or devnet).
+- Points to the companion EVM package, `@habix/ivana-evm-checkout`, for USDC on
+  Base and Polygon.
+
 ## 0.5.0
 
 ### Fixed
